@@ -1,5 +1,7 @@
 from django.http import JsonResponse
 from rest_framework import status
+from django.conf import settings
+from pathlib import Path
 
 
 def field_en_to_zh(instance, data):
@@ -51,3 +53,8 @@ def json_err_rsp(exception, http_status=status.HTTP_200_OK):
     response["Access-Control-Max-Age"] = "1000"
     response["Access-Control-Allow-Headers"] = "*"
     return response
+
+async def set_init_script(context):
+    stealth_js_path = Path(settings.BASE_DIR / "utils/stealth.min.js")
+    await context.add_init_script(path=stealth_js_path)
+    return context

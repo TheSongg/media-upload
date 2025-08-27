@@ -1,10 +1,10 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .redbookviewset import RedBookUpdateViewSet
+from .views import VideoViewSet
 
 
 router = DefaultRouter()
-router.register(r'redbook', RedBookUpdateViewSet, basename='redbook')
+router.register(r'video', VideoViewSet, basename='video')
 
 
 urlpatterns = [

@@ -7,6 +7,8 @@ dependencies = [
     "django>=5.2.5",
     "django-dotenv==1.4.2",
     "django-rest-framework==0.1.0",
+    "django-softdelete>=0.11.5",
+    "playwright==1.54.0",
     "psycopg2-binary>=2.9.10",
     "python-dotenv==1.1.1",
 ]
