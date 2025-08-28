@@ -31,25 +31,25 @@ DEBUG = True
 
 default_headers = [
     'accept',
-    'accept-encoding",
-    'authorization,
-    "content-type',
+    'accept-encoding',
+    'authorization',
+    'content-type',
     'dnt',
     'origin',
-    'user-agent,
+    'user-agent',
     'x-csrftoken',
-    "x-requested-with',
+    'x-requested-with',
 ]
-default methods =[
+default_methods =[
     'DELETE'
     'GET',
-    'OPTIONS,
-    'PATCH,
-    'POST''
+    'OPTIONS',
+    'PATCH',
+    'POST',
     'PUT'
 ]
 CORS_ALLOW_METHODS = default_methods
-CORS_ALLOW_HEADERS = default_headers + (
+CORS_ALLOW_HEADERS = default_headers + [
     'Access-Control-Allow-Origin', 'User', 'client', 'Role', 'preview', 'uuid', "Authorization",'Language']
 
 ALLOWED_HOSTS = ['*']
