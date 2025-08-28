@@ -1,15 +1,20 @@
 import logging
+import re
+from pickle import FALSE
+
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from media_upload.utils.base_views import BaseViewSet
 
+from django.db import transaction
 from media_upload.utils.comm import set_init_script
+
+
+from datetime import datetime
 from .models import XiaoHongShuVideo
 from .serializers import XiaoHongShuVideoSerializer
 from playwright.async_api import Playwright, async_playwright, Page
 import os
-from playwright.sync_api import sync_playwright
-import time
 import asyncio
 
 
@@ -82,111 +87,133 @@ class VideoViewSet(BaseViewSet):
         # self.thumbnail_path = thumbnail_path
         # self.browser = None
 
-    @staticmethod
-    def set_schedule_time(page, publish_date):
-        # 点击 "定时发布" 复选框
-        label_element = page.locator("label:has-text('定时发布')")
-        label_element.click()
-        time.sleep(1)
-        publish_date_hour = publish_date.strftime("%Y-%m-%d %H:%M")
-        time.sleep(1)
-        page.locator('.el-input__inner[placeholder="选择日期和时间"]').click()
-        page.keyboard.press("Control+A")
-        page.keyboard.type(str(publish_date_hour))
-        page.keyboard.press("Enter")
-        time.sleep(1)
+    async def set_schedule_time_xiaohongshu(self, page, publish_date):
+        print("  [-] 正在设置定时发布时间...")
+        print(f"publish_date: {publish_date}")
 
-    def handle_upload_error(self, page):
-        page.locator('div.progress-div [class^="upload-btn-input"]').set_input_files(self.file_path)
+        # 使用文本内容定位元素
+        # element = await page.wait_for_selector(
+        #     'label:has-text("定时发布")',
+        #     timeout=5000  # 5秒超时时间
+        # )
+        # await element.click()
+
+        # # 选择包含特定文本内容的 label 元素
+        label_element = page.locator("label:has-text('定时发布')")
+        # # 在选中的 label 元素下点击 checkbox
+        await label_element.click()
+        await asyncio.sleep(1)
+        publish_date_hour = publish_date.strftime("%Y-%m-%d %H:%M")
+        print(f"publish_date_hour: {publish_date_hour}")
+
+        await asyncio.sleep(1)
+        await page.locator('.el-input__inner[placeholder="选择日期和时间"]').click()
+        await page.keyboard.press("Control+KeyA")
+        await page.keyboard.type(str(publish_date_hour))
+        await page.keyboard.press("Enter")
+
+        await asyncio.sleep(1)
+
+    async def handle_upload_error(self, page):
+        await page.locator('div.progress-div [class^="upload-btn-input"]').set_input_files(self.file_path)
 
     @action(detail=False, methods=['post'], url_path='upload')
-    def upload(self, request, *args, **kwargs):
+    async def upload(self, request, *args, **kwargs) -> None:
+        # 使用 Chromium 浏览器启动一个浏览器实例
+        print(121111)
+        print(request.data)
         account_file = request.data.get("account_file")
-        title = request.data.get("title", "")
-        tags = request.data.get("tags", [])
-        publish_date = request.data.get("publish_date")
-        file_path = request.data.get("file_path", "")
+        local_executable_path = request.data.get("local_executable_path")
 
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
-            context = browser.new_context(
-                viewport={"width": 1600, "height": 900},
-                storage_state=f"{account_file}"
-            )
+        if not account_file:
+            return Response({"error": "缺少 account_file"}, status=400)
+        playwright = Playwright()
+        browser = await playwright.chromium.launch(headless=False)
+        # 创建一个浏览器上下文，使用指定的 cookie 文件
+        context = await browser.new_context(
+            viewport={"width": 1600, "height": 900},
+            storage_state=f"{account_file}"
+        )
+        context = await set_init_script(context)
 
-            # 如果有初始化脚本逻辑，这里要改成同步版本
-            context = set_init_script(context)
+        # 创建一个新的页面
+        page = await context.new_page()
+        # 访问指定的 URL
+        await page.goto("https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video")
+        # 等待页面跳转到指定的 URL，没进入，则自动等待到超时
+        await page.wait_for_url("https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video")
+        # 点击 "上传视频" 按钮
+        await page.locator("div[class^='upload-content'] input[class='upload-input']").set_input_files(self.file_path)
 
-            page = context.new_page()
-            page.goto("https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video")
-            page.wait_for_url("https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video")
-
-            # 上传视频
-            page.locator("div[class^='upload-content'] input[class='upload-input']").set_input_files(file_path)
-
-            # 等待上传完成
-            while True:
-                try:
-                    upload_input = page.wait_for_selector('input.upload-input', timeout=3000)
-                    preview_new = upload_input.query_selector(
-                        'xpath=following-sibling::div[contains(@class, "preview-new")]')
-                    if preview_new:
-                        stage_elements = preview_new.query_selector_all('div.stage')
-                        upload_success = False
-                        for stage in stage_elements:
-                            text_content = page.evaluate('(element) => element.textContent', stage)
-                            if '上传成功' in text_content:
-                                upload_success = True
-                                break
-                        if upload_success:
+        # 等待页面跳转到指定的 URL 2025.01.08修改在原有基础上兼容两种页面
+        while True:
+            try:
+                # 等待upload-input元素出现
+                upload_input = await page.wait_for_selector('input.upload-input', timeout=3000)
+                # 获取下一个兄弟元素
+                preview_new = await upload_input.query_selector(
+                    'xpath=following-sibling::div[contains(@class, "preview-new")]')
+                if preview_new:
+                    # 在preview-new元素中查找包含"上传成功"的stage元素
+                    stage_elements = await preview_new.query_selector_all('div.stage')
+                    upload_success = False
+                    for stage in stage_elements:
+                        text_content = await page.evaluate('(element) => element.textContent', stage)
+                        if '上传成功' in text_content:
+                            upload_success = True
                             break
-                    else:
-                        time.sleep(1)
-                except Exception:
-                    time.sleep(0.5)
+                    if upload_success:
+                        break
+                else:
+                    await asyncio.sleep(1)
+            except Exception as e:
+                await asyncio.sleep(0.5)
 
-            # 填充标题
-            time.sleep(1)
-            title_container = page.locator('div.plugin.title-container').locator('input.d-text')
-            if title_container.count():
-                title_container.fill(title[:30])
-            else:
-                titlecontainer = page.locator(".notranslate")
-                titlecontainer.click()
-                page.keyboard.press("Backspace")
-                page.keyboard.press("Control+KeyA")
-                page.keyboard.press("Delete")
-                page.keyboard.type(title)
-                page.keyboard.press("Enter")
+        # 填充标题和话题
+        # 检查是否存在包含输入框的元素
+        # 这里为了避免页面变化，故使用相对位置定位：作品标题父级右侧第一个元素的input子元素
+        await asyncio.sleep(1)
+        title_container = page.locator('div.plugin.title-container').locator('input.d-text')
+        if await title_container.count():
+            await title_container.fill(title[:30])
+        else:
+            titlecontainer = page.locator(".notranslate")
+            await titlecontainer.click()
+            await page.keyboard.press("Backspace")
+            await page.keyboard.press("Control+KeyA")
+            await page.keyboard.press("Delete")
+            await page.keyboard.type(title)
+            await page.keyboard.press("Enter")
+        css_selector = ".ql-editor"  # 不能加上 .ql-blank 属性，这样只能获取第一次非空状态
+        for index, tag in enumerate(tags, start=1):
+            await page.type(css_selector, "#" + tag)
+            await page.press(css_selector, "Space")
 
-            # 填充话题
-            css_selector = ".ql-editor"
-            for tag in tags:
-                page.type(css_selector, "#" + tag)
-                page.press(css_selector, "Space")
+        if publish_date != 0:
+            await set_schedule_time_xiaohongshu(page, publish_date)
 
-            # 设置定时/发布
-            if publish_date:
-                self.set_schedule_time(page, publish_date)
+        # 判断视频是否发布成功
+        while True:
+            try:
+                # 等待包含"定时发布"文本的button元素出现并点击
+                if publish_date != 0:
+                    await page.locator('button:has-text("定时发布")').click()
+                else:
+                    await page.locator('button:has-text("发布")').click()
+                await page.wait_for_url(
+                    "https://creator.xiaohongshu.com/publish/success?**",
+                    timeout=3000
+                )  # 如果自动跳转到作品页面，则代表发布成功
+                break
+            except:
+                await page.screenshot(full_page=True)
+                await asyncio.sleep(0.5)
 
-            while True:
-                try:
-                    if publish_date:
-                        page.locator('button:has-text("定时发布")').click()
-                    else:
-                        page.locator('button:has-text("发布")').click()
-                    page.wait_for_url("https://creator.xiaohongshu.com/publish/success?**", timeout=3000)
-                    break
-                except:
-                    page.screenshot(full_page=True)
-                    time.sleep(0.5)
-
-            context.storage_state(path=account_file)
-            time.sleep(2)
-            context.close()
-            browser.close()
-
-        return Response({"code": "0000", "message": "上传成功"})
+        await context.storage_state(path=account_file)  # 保存cookie
+        await asyncio.sleep(2)  # 这里延迟是为了方便眼睛直观的观看
+        # 关闭浏览器上下文和浏览器实例
+        await context.close()
+        await browser.close()
 
     async def set_thumbnail(self, page: Page, thumbnail_path: str):
         if thumbnail_path:
@@ -275,3 +302,7 @@ class VideoViewSet(BaseViewSet):
             # 截图保存（取消注释使用）
             # await page.screenshot(path=f"location_error_{location}.png")
             return False
+
+    async def main(self):
+        async with async_playwright() as playwright:
+            await self.upload(playwright)
