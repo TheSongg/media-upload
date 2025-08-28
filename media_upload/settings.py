@@ -29,8 +29,30 @@ SECRET_KEY = 'django-insecure-w9)f%h-=%g*!vp@$=zg+@=v_a+w##4#ikk5yyw852-@-%ly(4n
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+default_headers = [
+    'accept',
+    'accept-encoding",
+    'authorization,
+    "content-type',
+    'dnt',
+    'origin',
+    'user-agent,
+    'x-csrftoken',
+    "x-requested-with',
+]
+default methods =[
+    'DELETE'
+    'GET',
+    'OPTIONS,
+    'PATCH,
+    'POST''
+    'PUT'
+]
+CORS_ALLOW_METHODS = default_methods
+CORS_ALLOW_HEADERS = default_headers + (
+    'Access-Control-Allow-Origin', 'User', 'client', 'Role', 'preview', 'uuid', "Authorization",'Language']
 
+ALLOWED_HOSTS = ['*']
 
 # Application definition
 
