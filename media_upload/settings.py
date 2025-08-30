@@ -48,6 +48,7 @@ default_methods =[
     'POST',
     'PUT'
 ]
+
 CORS_ALLOW_METHODS = default_methods
 CORS_ALLOW_HEADERS = default_headers + [
     'Access-Control-Allow-Origin', 'User', 'client', 'Role', 'preview', 'uuid', "Authorization",'Language']

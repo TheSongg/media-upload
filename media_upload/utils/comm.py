@@ -54,7 +54,7 @@ def json_err_rsp(exception, http_status=status.HTTP_200_OK):
     response["Access-Control-Allow-Headers"] = "*"
     return response
 
-async def set_init_script(context):
-    stealth_js_path = Path(settings.BASE_DIR / "utils/stealth.min.js")
-    await context.add_init_script(path=stealth_js_path)
+def set_init_script(context):
+    stealth_js_path = Path(settings.BASE_DIR / "media_upload" / "utils/stealth.min.js")
+    context.add_init_script(path=stealth_js_path)
     return context

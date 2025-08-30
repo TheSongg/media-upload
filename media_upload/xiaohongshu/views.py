@@ -2,15 +2,20 @@ import logging
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from media_upload.utils.base_views import BaseViewSet
-
 from media_upload.utils.comm import set_init_script
 from .models import XiaoHongShuVideo
 from .serializers import XiaoHongShuVideoSerializer
-from playwright.async_api import Playwright, async_playwright, Page
-import os
+from playwright.async_api import async_playwright, Page
 from playwright.sync_api import sync_playwright
 import time
+from pathlib import Path
+import os
+import base64
+from django.conf import settings
+from datetime import datetime
+from telegram import Bot
 import asyncio
+import requests
 
 
 logger = logging.getLogger("upload")
@@ -51,24 +56,6 @@ async def xiaohongshu_setup(account_file, handle=False):
     return True
 
 
-async def xiaohongshu_cookie_gen(account_file):
-    async with async_playwright() as playwright:
-        options = {
-            'headless': False
-        }
-        # Make sure to run headed.
-        browser = await playwright.chromium.launch(**options)
-        # Setup context however you like.
-        context = await browser.new_context()  # Pass any options
-        context = await set_init_script(context)
-        # Pause the page, and start recording manually.
-        page = await context.new_page()
-        await page.goto("https://creator.xiaohongshu.com/")
-        await page.pause()
-        # 点击调试器的继续，保存cookie
-        await context.storage_state(path=account_file)
-
-
 class VideoViewSet(BaseViewSet):
     serializer_class = XiaoHongShuVideoSerializer
     queryset = XiaoHongShuVideo.objects.all()
@@ -101,16 +88,16 @@ class VideoViewSet(BaseViewSet):
 
     @action(detail=False, methods=['post'], url_path='upload')
     def upload(self, request, *args, **kwargs):
-        account_file = request.data.get("account_file")
-        title = request.data.get("title", "")
+        account_file = r'D:\Git\media-upload\media_upload\xiaohongshu\cookies.json'
+        title = request.data.get("title", "测试视频上传")
         tags = request.data.get("tags", [])
         publish_date = request.data.get("publish_date")
-        file_path = request.data.get("file_path", "")
+        file_path = r'D:\Git\media-upload\media_upload\video\demo.mp4'
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
+            browser = p.chromium.launch(headless=False, executable_path=os.getenv('CHROME_DRIVER'))
             context = browser.new_context(
-                viewport={"width": 1600, "height": 900},
+                # viewport={"width": 1600, "height": 900},
                 storage_state=f"{account_file}"
             )
 
@@ -275,3 +262,55 @@ class VideoViewSet(BaseViewSet):
             # 截图保存（取消注释使用）
             # await page.screenshot(path=f"location_error_{location}.png")
             return False
+
+    @action(detail=False, methods=['get'])
+    def xiaohongshu_cookies_gen(self, request):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(executable_path=os.getenv('CHROME_DRIVER'), headless=False)
+            context = browser.new_context()
+            context = set_init_script(context)
+            page = context.new_page()
+            page.goto(os.getenv('XHS_HOME'))
+
+            #  点击生成二维码登录，手机号登录的页面不稳定
+            page.locator("img.css-wemwzq")
+            page.wait_for_selector("img.css-wemwzq")
+            page.locator("img.css-wemwzq").click()
+
+            img = page.locator("img.css-1lhmg90")
+            page.wait_for_selector("img.css-1lhmg90")
+
+            #  保存登录二维码
+            src = img.get_attribute("src")
+
+            if src and src.startswith("data:image"):
+                # 提取 base64 部分
+                header, b64data = src.split(",", 1)
+                img_bytes = base64.b64decode(b64data)
+
+                save_time = datetime.now().strftime("%Y%m%d%H%M%S")
+                qr_img_path = Path(settings.BASE_DIR / "media_upload/xiaohongshu/qr_img" / f"qr_img_{save_time}.png")
+                # 保存到文件
+                with open(qr_img_path, "wb") as f:
+                    f.write(img_bytes)
+
+                url = f"https://api.telegram.org/bot{os.getenv('TG_BOT_TOKEN')}/sendPhoto"
+                files = {"photo": open(qr_img_path, "rb")}
+                data = {"chat_id": os.getenv('CHAT_ID'), "caption": "这是二维码"}
+                resp = requests.post(url, files=files, data=data)
+                if not resp.ok:
+                    raise Exception(f'发送二维码到tg bot失败！')
+            else:
+                raise Exception("未找到登录二维码！")
+
+            num = 1
+            while num < 60:
+                if page.query_selector("span:has-text('发布笔记')"):
+                    break
+                else:
+                    time.sleep(3)
+                    num += 1
+
+            context.storage_state(path=r'D:\Git\media-upload\media_upload\xiaohongshu\cookies.json')
+            browser.close()
+            return Response("登录二维码保存成功！")
